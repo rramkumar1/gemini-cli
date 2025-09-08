@@ -274,9 +274,91 @@ const deleteCommand: SlashCommand = {
   },
 };
 
+const exportCommand: SlashCommand = {
+  name: 'export',
+  description:
+    'Export the current conversation to a file. Usage: /chat export <file_path>',
+  kind: CommandKind.BUILT_IN,
+  action: async (context, args): Promise<MessageActionReturn> => {
+    const filePath = args.trim();
+    if (!filePath) {
+      return {
+        type: 'message',
+        messageType: 'error',
+        content: 'Missing file path. Usage: /chat export <file_path>',
+      };
+    }
+
+    const chat = await context.services.config?.getGeminiClient()?.getChat();
+    if (!chat) {
+      return {
+        type: 'message',
+        messageType: 'error',
+        content: 'No chat client available to export conversation.',
+      };
+    }
+
+    const history = await chat.getHistory();
+    if (history.length === 0) {
+      return {
+        type: 'message',
+        messageType: 'info',
+        content: 'No conversation found to export.',
+      };
+    }
+
+    const fileExtension = path.extname(filePath).toLowerCase();
+    let formattedContent: string;
+
+    if (fileExtension === '.json') {
+      formattedContent = JSON.stringify(history, null, 2);
+    } else if (fileExtension === '.md') {
+      formattedContent = history
+        .map((item) => {
+          const role = `**${item.role.toUpperCase()}**`;
+          const text =
+            item.parts
+              ?.filter((m) => !!m.text)
+              .map((m) => m.text)
+              .join('') || '';
+          return `${role}\n${text}`;
+        })
+        .join('\n\n---\n\n');
+    } else {
+      return {
+        type: 'message',
+        messageType: 'error',
+        content: 'Unsupported file format. Please use .json or .md.',
+      };
+    }
+
+    try {
+      await fsPromises.writeFile(filePath, formattedContent);
+      return {
+        type: 'message',
+        messageType: 'info',
+        content: `Conversation exported to ${filePath}.`,
+      };
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      return {
+        type: 'message',
+        messageType: 'error',
+        content: `Error exporting conversation: ${errorMessage}`,
+      };
+    }
+  },
+};
+
 export const chatCommand: SlashCommand = {
   name: 'chat',
   description: 'Manage conversation history.',
   kind: CommandKind.BUILT_IN,
-  subCommands: [listCommand, saveCommand, resumeCommand, deleteCommand],
+  subCommands: [
+    listCommand,
+    saveCommand,
+    resumeCommand,
+    deleteCommand,
+    exportCommand,
+  ],
 };

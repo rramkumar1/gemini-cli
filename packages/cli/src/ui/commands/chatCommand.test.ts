@@ -86,7 +86,7 @@ describe('chatCommand', () => {
   it('should have the correct main command definition', () => {
     expect(chatCommand.name).toBe('chat');
     expect(chatCommand.description).toBe('Manage conversation history.');
-    expect(chatCommand.subCommands).toHaveLength(4);
+    expect(chatCommand.subCommands).toHaveLength(5);
   });
 
   describe('list subcommand', () => {
@@ -404,6 +404,118 @@ describe('chatCommand', () => {
         const result = await deleteCommand?.completion?.(mockContext, 'a');
 
         expect(result).toEqual(['alpha']);
+      });
+    });
+  });
+
+  describe('export subcommand', () => {
+    let exportCommand: SlashCommand;
+    let mockWriteFile: ReturnType<typeof vi.fn>;
+
+    beforeEach(() => {
+      exportCommand =
+        chatCommand.subCommands?.find((cmd) => cmd.name === 'export') ??
+        ({} as SlashCommand);
+      mockWriteFile = vi.fn().mockResolvedValue(undefined);
+      mockFs.writeFile = mockWriteFile;
+    });
+
+    it('should return an error if file path is missing', async () => {
+      const result = await exportCommand?.action?.(mockContext, '  ');
+      expect(result).toEqual({
+        type: 'message',
+        messageType: 'error',
+        content: 'Missing file path. Usage: /chat export <file_path>',
+      });
+    });
+
+    it('should return an error for unsupported file format', async () => {
+      const result = await exportCommand?.action?.(
+        mockContext,
+        'history.txt',
+      );
+      expect(result).toEqual({
+        type: 'message',
+        messageType: 'error',
+        content: 'Unsupported file format. Please use .json or .md.',
+      });
+    });
+
+    it('should inform if conversation is empty', async () => {
+      mockGetHistory.mockReturnValue([]);
+      const result = await exportCommand?.action?.(
+        mockContext,
+        'history.json',
+      );
+      expect(result).toEqual({
+        type: 'message',
+        messageType: 'info',
+        content: 'No conversation found to export.',
+      });
+    });
+
+    it('should export to JSON file', async () => {
+      const history: Content[] = [
+        { role: 'user', parts: [{ text: 'hello' }] },
+        { role: 'model', parts: [{ text: 'hi' }] },
+      ];
+      mockGetHistory.mockReturnValue(history);
+
+      const result = await exportCommand?.action?.(
+        mockContext,
+        'history.json',
+      );
+
+      expect(mockWriteFile).toHaveBeenCalledWith(
+        'history.json',
+        JSON.stringify(history, null, 2),
+      );
+      expect(result).toEqual({
+        type: 'message',
+        messageType: 'info',
+        content: 'Conversation exported to history.json.',
+      });
+    });
+
+    it('should export to Markdown file', async () => {
+      const history: Content[] = [
+        { role: 'user', parts: [{ text: 'hello' }] },
+        { role: 'model', parts: [{ text: 'hi' }] },
+      ];
+      mockGetHistory.mockReturnValue(history);
+
+      const result = await exportCommand?.action?.(mockContext, 'history.md');
+
+      const expectedContent =
+        '**USER**\nhello\n\n---\n\n**MODEL**\nhi';
+      expect(mockWriteFile).toHaveBeenCalledWith(
+        'history.md',
+        expectedContent,
+      );
+      expect(result).toEqual({
+        type: 'message',
+        messageType: 'info',
+        content: 'Conversation exported to history.md.',
+      });
+    });
+
+    it('should handle file write error', async () => {
+      const history: Content[] = [
+        { role: 'user', parts: [{ text: 'hello' }] },
+      ];
+      mockGetHistory.mockReturnValue(history);
+      const error = new Error('Permission denied');
+      mockWriteFile.mockRejectedValue(error);
+
+      const result = await exportCommand?.action?.(
+        mockContext,
+        'history.json',
+      );
+
+      expect(result).toEqual({
+        type: 'message',
+        messageType: 'error',
+        content: `Error exporting conversation: ${error.message}`,
       });
     });
   });
